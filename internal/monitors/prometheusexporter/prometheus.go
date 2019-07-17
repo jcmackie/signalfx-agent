@@ -48,13 +48,15 @@ type Monitor struct {
 }
 
 // Configure the monitor and kick off volume metric syncing
-func (m *Monitor) Configure(conf PrometheusConfig) error {
-	m.client = conf.NewPrometheusClient()
-
+func (m *Monitor) Configure(conf PrometheusConfig) (err error) {
+	if m.client, err = conf.NewPrometheusClient(); err != nil {
+		logger.WithError(err).Error("Could not create prometheus client")
+		return
+	}
 	var ctx context.Context
 	ctx, m.cancel = context.WithCancel(context.Background())
 	utils.RunOnInterval(ctx, func() {
-		var metricFamilies []*dto.MetricFamily; var err error;
+		var metricFamilies []*dto.MetricFamily
 		if metricFamilies, err = m.client.GetMetricFamilies();  err != nil {
 			logger.WithError(err).Error("Could not get prometheus metrics")
 			return
@@ -66,8 +68,7 @@ func (m *Monitor) Configure(conf PrometheusConfig) error {
 			m.Output.SendDatapoint(dps[i])
 		}
 	}, conf.GetInterval())
-
-	return nil
+	return
 }
 
 func datapoints(metricFamilies []*dto.MetricFamily) []*datapoint.Datapoint {

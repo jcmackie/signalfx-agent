@@ -15,7 +15,7 @@ import (
 // PrometheusConfig is an interface for configuring for this monitor.
 type
 PrometheusConfig interface {
-	NewPrometheusClient() *PrometheusClient
+	NewPrometheusClient() (*PrometheusClient, error)
 	GetInterval() time.Duration
 }
 
