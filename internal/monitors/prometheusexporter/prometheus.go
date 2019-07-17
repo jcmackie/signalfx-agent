@@ -1,16 +1,13 @@
+
+//
 package prometheusexporter
 
+// This package
 import (
 	"context"
-	"crypto/tls"
-	"fmt"
-	"io"
-	"net/http"
-	"strings"
 	"time"
 
 	dto "github.com/prometheus/client_model/go"
-	"github.com/prometheus/common/expfmt"
 	"github.com/signalfx/golib/datapoint"
 	"github.com/signalfx/signalfx-agent/internal/core/config"
 	"github.com/signalfx/signalfx-agent/internal/monitors"
@@ -23,38 +20,6 @@ var logger = log.WithFields(log.Fields{"monitorType": monitorType})
 
 func init() {
 	monitors.Register(&monitorMetadata, func() interface{} { return &Monitor{} }, &Config{})
-}
-
-// Config for this monitor
-type Config struct {
-	config.MonitorConfig `yaml:",inline" acceptsEndpoints:"true"`
-
-	// Host of the exporter
-	Host string `yaml:"host" validate:"required"`
-	// Port of the exporter
-	Port uint16 `yaml:"port" validate:"required"`
-
-	// Basic Auth username to use on each request, if any.
-	Username string `yaml:"username"`
-	// Basic Auth password to use on each request, if any.
-	Password string `yaml:"password" neverLog:"true"`
-
-	// If true, the agent will connect to the exporter using HTTPS instead of
-	// plain HTTP.
-	UseHTTPS bool `yaml:"useHTTPS"`
-	// If useHTTPS is true and this option is also true, the exporter's TLS
-	// cert will not be verified.
-	SkipVerify bool `yaml:"skipVerify"`
-
-	// Path to the metrics endpoint on the exporter server, usually `/metrics`
-	// (the default).
-	MetricPath string `yaml:"metricPath" default:"/metrics"`
-
-	// Send all the metrics that come out of the Prometheus exporter without
-	// any filtering.  This option has no effect when using the prometheus
-	// exporter monitor directly since there is no built-in filtering, only
-	// when embedding it in other monitors.
-	SendAllMetrics bool `yaml:"sendAllMetrics"`
 }
 
 func (c *Config) GetExtraMetrics() []string {
@@ -79,100 +44,40 @@ type Monitor struct {
 	// If true, IncludedMetrics is ignored and everything is sent.
 	SendAll bool
 	cancel  func()
-	client  *http.Client
+	client  *PrometheusClient
 }
 
 // Configure the monitor and kick off volume metric syncing
-func (m *Monitor) Configure(conf *Config) error {
-	m.client = &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: conf.SkipVerify},
-		},
-	}
-
-	var scheme string
-	if conf.UseHTTPS {
-		scheme = "https"
-	} else {
-		scheme = "http"
-	}
-
-	host := conf.Host
-	// Handle IPv6 addresses properly
-	if strings.ContainsAny(host, ":") {
-		host = "[" + host + "]"
-	}
-	url := fmt.Sprintf("%s://%s:%d%s", scheme, host, conf.Port, conf.MetricPath)
+func (m *Monitor) Configure(conf PrometheusConfig) error {
+	m.client = conf.NewPrometheusClient()
 
 	var ctx context.Context
 	ctx, m.cancel = context.WithCancel(context.Background())
 	utils.RunOnInterval(ctx, func() {
-		dps, err := fetchPrometheusMetrics(m.client, url, conf.Username, conf.Password)
-		if err != nil {
+		var metricFamilies []*dto.MetricFamily; var err error;
+		if metricFamilies, err = m.client.GetMetricFamilies();  err != nil {
 			logger.WithError(err).Error("Could not get prometheus metrics")
 			return
 		}
-
+		dps := datapoints(metricFamilies)
 		now := time.Now()
 		for i := range dps {
 			dps[i].Timestamp = now
 			m.Output.SendDatapoint(dps[i])
 		}
-	}, time.Duration(conf.IntervalSeconds)*time.Second)
+	}, conf.GetInterval())
 
 	return nil
 }
 
-func fetchPrometheusMetrics(client *http.Client, url, username, password string) ([]*datapoint.Datapoint, error) {
-	metricFamilies, err := doFetch(client, url, username, password)
-	if err != nil {
-		return nil, err
-	}
-
+func datapoints(metricFamilies []*dto.MetricFamily) []*datapoint.Datapoint {
 	var dps []*datapoint.Datapoint
 	for i := range metricFamilies {
 		dps = append(dps, convertMetricFamily(metricFamilies[i])...)
 	}
-	return dps, nil
+	return dps
 }
 
-func doFetch(client *http.Client, url, username, password string) ([]*dto.MetricFamily, error) {
-	// Prometheus 2.0 deprecated protobuf and now only does the text format.
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	if username != "" {
-		req.SetBasicAuth(username, password)
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("prometheus exporter at %s returned status %d", url, resp.StatusCode)
-	}
-
-	decoder := expfmt.NewDecoder(resp.Body, expfmt.ResponseFormat(resp.Header))
-	var mfs []*dto.MetricFamily
-
-	for {
-		var mf dto.MetricFamily
-		err := decoder.Decode(&mf)
-
-		if err == io.EOF {
-			return mfs, nil
-		} else if err != nil {
-			return nil, err
-		}
-
-		mfs = append(mfs, &mf)
-	}
-}
 
 // Shutdown stops the metric sync
 func (m *Monitor) Shutdown() {
