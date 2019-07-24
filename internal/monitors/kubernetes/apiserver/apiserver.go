@@ -15,17 +15,21 @@ func init() {
 	monitors.Register(&monitorMetadata, func() interface{} { return &prometheusexporter.Monitor{} }, &Config{})
 }
 
-// Config for the kubernetes apiserver monitor. Config implements interface PrometheusConfig.
+// Config is the config for this monitor and implements interface PrometheusConfig.
 type Config struct {
 	config.MonitorConfig
-	// Configuration of the Kubernetes API client
+	// Configuration of the Kubernetes API client.
 	KubernetesAPI *kubernetes.APIConfig `yaml:"kubernetesAPI" default:"{}"`
-	// Path to the metrics endpoint on the exporter server, usually `/metrics`
-	// (the default).
+	// Path to the metrics endpoint on the exporter server, usually `/metrics` (the default).
 	MetricPath string `yaml:"metricPath" default:"/metrics"`
 }
 
-// PrometheusConfig method implementation.
+// Validate k8s-specific configuration.
+func (c *Config) Validate() error {
+	return c.KubernetesAPI.Validate()
+}
+
+// NewPrometheusClient is a PrometheusConfig interface method implementation that creates the prometheus client.
 func (c *Config) NewPrometheusClient() (*prometheusexporter.PrometheusClient, error) {
 	k8sClient, err := kubernetes.MakeClient(c.KubernetesAPI)
 	if err != nil {
@@ -34,20 +38,16 @@ func (c *Config) NewPrometheusClient() (*prometheusexporter.PrometheusClient, er
 	return  &prometheusexporter.PrometheusClient{
 		GetMetricFamilies: func() (metricFamilies []*dto.MetricFamily, err error) {
 			var body io.ReadCloser
-			body, err = k8sClient.CoreV1().RESTClient().Get().RequestURI(c.MetricPath).Stream()
-			if err != nil {
+			defer func() { if body != nil {body.Close()} }()
+			if body, err = k8sClient.CoreV1().RESTClient().Get().RequestURI(c.MetricPath).Stream(); err != nil {
 				return
 			}
-			defer body.Close()
 			decoder := expfmt.NewDecoder(body, expfmt.FmtText)
 			metricFamilies = make([]*dto.MetricFamily, 0)
 			for {
 				var mf dto.MetricFamily
-				err = decoder.Decode(&mf)
-				if err == io.EOF {
-					return metricFamilies, nil
-				} else if err != nil {
-					return nil, err
+				if err = decoder.Decode(&mf); err != nil || err == io.EOF {
+					return
 				}
 				metricFamilies = append(metricFamilies, &mf)
 			}
@@ -56,7 +56,7 @@ func (c *Config) NewPrometheusClient() (*prometheusexporter.PrometheusClient, er
 	}, nil
 }
 
-// PrometheusConfig method implementation.
+// GetInterval is a PrometheusConfig interface method implementation for getting the configured monitor run interval.
 func (c *Config) GetInterval() time.Duration {
 	return time.Duration(c.IntervalSeconds)*time.Second
 }

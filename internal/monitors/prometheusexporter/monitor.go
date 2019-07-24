@@ -1,15 +1,10 @@
-
-//
 package prometheusexporter
 
-// This package
 import (
 	"context"
 	"time"
 
 	dto "github.com/prometheus/client_model/go"
-	"github.com/signalfx/golib/datapoint"
-	"github.com/signalfx/signalfx-agent/internal/core/config"
 	"github.com/signalfx/signalfx-agent/internal/monitors"
 	"github.com/signalfx/signalfx-agent/internal/monitors/types"
 	"github.com/signalfx/signalfx-agent/internal/utils"
@@ -21,17 +16,6 @@ var logger = log.WithFields(log.Fields{"monitorType": monitorType})
 func init() {
 	monitors.Register(&monitorMetadata, func() interface{} { return &Monitor{} }, &Config{})
 }
-
-func (c *Config) GetExtraMetrics() []string {
-	// Maintain backwards compatibility with the config flag that existing
-	// prior to the new filtering mechanism.
-	if c.SendAllMetrics {
-		return []string{"*"}
-	}
-	return nil
-}
-
-var _ config.ExtraMetrics = &Config{}
 
 // Monitor for prometheus exporter metrics
 type Monitor struct {
@@ -61,7 +45,7 @@ func (m *Monitor) Configure(conf PrometheusConfig) (err error) {
 			logger.WithError(err).Error("Could not get prometheus metrics")
 			return
 		}
-		dps := datapoints(metricFamilies)
+		dps := convertMetricFamilies(metricFamilies)
 		now := time.Now()
 		for i := range dps {
 			dps[i].Timestamp = now
@@ -70,15 +54,6 @@ func (m *Monitor) Configure(conf PrometheusConfig) (err error) {
 	}, conf.GetInterval())
 	return
 }
-
-func datapoints(metricFamilies []*dto.MetricFamily) []*datapoint.Datapoint {
-	var dps []*datapoint.Datapoint
-	for i := range metricFamilies {
-		dps = append(dps, convertMetricFamily(metricFamilies[i])...)
-	}
-	return dps
-}
-
 
 // Shutdown stops the metric sync
 func (m *Monitor) Shutdown() {
