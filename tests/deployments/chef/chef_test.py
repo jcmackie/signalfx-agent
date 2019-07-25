@@ -2,6 +2,8 @@
 
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -17,11 +19,16 @@ from tests.helpers.util import print_lines, wait_for
 from tests.packaging.common import (
     INIT_SYSTEMD,
     INIT_UPSTART,
+    WIN_REPO_ROOT_DIR,
     get_agent_logs,
     get_agent_version,
     get_win_agent_version,
+    has_choco,
     is_agent_running_as_non_root,
     run_init_system_image,
+    run_win_command,
+    running_in_azure_pipelines,
+    uninstall_win_agent,
 )
 from tests.paths import REPO_ROOT_DIR
 
@@ -144,14 +151,20 @@ def test_chef(base_image, init_system, chef_version):
             print_lines(get_agent_logs(cont, init_system))
 
 
+def get_win_chef_version():
+    output = run_win_command("chef-client --version").stdout.decode("utf-8")
+    match = re.search(r"(\d+\.\d+\.\d+)", output)
+    assert match and match.group(1).strip(), "failed to get version from output:\n%s" % output
+    return match.group(1).strip()
+
+
 def run_win_chef_client(backend, agent_version=None, stage=STAGE):
     attributes = json.loads(ATTRIBUTES_JSON)
     attributes["signalfx_agent"]["agent_version"] = agent_version
     attributes["signalfx_agent"]["package_stage"] = stage
     attributes["signalfx_agent"]["conf"]["ingestUrl"] = backend.ingest_url
     attributes["signalfx_agent"]["conf"]["apiUrl"] = backend.api_url
-    if os.environ.get("AZURE_HTTP_USER_AGENT"):
-        # running in Azure Pipelines; need to override Administrator user/group
+    if running_in_azure_pipelines():
         attributes["signalfx_agent"]["user"] = os.environ.get("USERNAME")
         attributes["signalfx_agent"]["group"] = os.environ.get("USERNAME")
     print(attributes)
@@ -159,7 +172,10 @@ def run_win_chef_client(backend, agent_version=None, stage=STAGE):
     with open(attributes_path, "w+") as fd:
         fd.write(json.dumps(attributes))
         fd.flush()
-        cmd = CHEF_CMD.format(attributes_path) + " --chef-license accept-silent"
+        if int(get_win_chef_version().split(".")[0]) >= 15:
+            cmd = CHEF_CMD.format(attributes_path) + " --chef-license accept-silent"
+        else:
+            cmd = CHEF_CMD.format(attributes_path)
         print('running "%s" ...' % cmd)
         proc = subprocess.run(
             cmd, cwd=r"C:\chef\cookbooks", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True
@@ -176,9 +192,45 @@ def run_win_chef_client(backend, agent_version=None, stage=STAGE):
     return installed_version
 
 
+if sys.platform == "win32":
+    if running_in_azure_pipelines() or has_choco():
+        WIN_CHEF_VERSIONS = os.environ.get("CHEF_VERSIONS", "latest").split(",")
+    else:
+        # assume chef is already installed on the system
+        WIN_CHEF_VERSIONS = [get_win_chef_version()]
+else:
+    WIN_CHEF_VERSIONS = []
+WIN_CHEF_BIN_DIR = r"C:\opscode\chef\bin"
+WIN_CHEF_COOKBOOKS_DIR = r"C:\chef\cookbooks"
+WIN_AGENT_COOKBOOK_SRC_DIR = os.path.join(WIN_REPO_ROOT_DIR, "deployments", "chef")
+WIN_AGENT_COOKBOOK_DEST_DIR = os.path.join(WIN_CHEF_COOKBOOKS_DIR, "signalfx_agent")
+WINDOWS_COOKBOOK_DIR = os.path.join(WIN_CHEF_COOKBOOKS_DIR, "windows")
+WINDOWS_COOKBOOK_URL = "https://supermarket.chef.io/cookbooks/windows/versions/6.0.0/download"
+
+
 @pytest.mark.windows_only
 @pytest.mark.skipif(sys.platform != "win32", reason="only runs on windows")
-def test_chef_on_windows():
+@pytest.mark.parametrize("chef_version", WIN_CHEF_VERSIONS)
+def test_chef_on_windows(chef_version):
+    uninstall_win_agent()
+    if running_in_azure_pipelines() or has_choco():
+        if run_win_command("chef-client --version", []).returncode == 0:
+            run_win_command("choco uninstall -y -f chef-client")
+        if chef_version == "latest":
+            run_win_command(f"choco upgrade -y -f chef-client")
+        else:
+            run_win_command(f"choco upgrade -y -f chef-client --version {chef_version}")
+        if WIN_CHEF_BIN_DIR not in os.environ.get("PATH"):
+            os.environ["PATH"] = WIN_CHEF_BIN_DIR + ";" + os.environ.get("PATH")
+    os.makedirs(WIN_CHEF_COOKBOOKS_DIR, exist_ok=True)
+    if os.path.isdir(WIN_AGENT_COOKBOOK_DEST_DIR):
+        shutil.rmtree(WIN_AGENT_COOKBOOK_DEST_DIR)
+    shutil.copytree(WIN_AGENT_COOKBOOK_SRC_DIR, WIN_AGENT_COOKBOOK_DEST_DIR)
+    if not os.path.isdir(WINDOWS_COOKBOOK_DIR):
+        run_win_command(
+            f'powershell -command "curl -outfile windows.tar.gz {WINDOWS_COOKBOOK_URL}"', cwd=WIN_CHEF_COOKBOOKS_DIR
+        )
+        run_win_command('powershell -command "tar -zxvf windows.tar.gz"', cwd=WIN_CHEF_COOKBOOKS_DIR)
     with ensure_fake_backend() as backend:
         try:
             run_win_chef_client(backend, INITIAL_VERSION)
