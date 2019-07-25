@@ -2,7 +2,7 @@ package prometheusexporter
 
 import (
 	"context"
-	"io"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -28,31 +28,27 @@ type Monitor struct {
 	ExtraDimensions map[string]string
 	// If true, IncludedMetrics is ignored and everything is sent.
 	SendAll      bool
+	ctx          context.Context
 	cancel       func()
 	client       *Client
 	loggingEntry *logrus.Entry
+	configErr    error
+	mux          sync.Mutex
 }
 
 // Configure the monitor and kick off volume metric syncing
-func (m *Monitor) Configure(conf ConfigInterface) (err error) {
-	if m.loggingEntry == nil {
-		m.loggingEntry = logrus.WithFields(logrus.Fields{"monitorType": conf.GetMonitorType()})
+func (m *Monitor) Configure(conf ConfigInterface) error {
+	if m.configureNil(conf); m.configErr != nil {
+		return m.configErr
 	}
-	if m.client, err = conf.NewClient(); err != nil {
-		m.loggingEntry.WithError(err).Error("Could not create prometheus client")
-		return
-	}
-	var ctx context.Context
-	ctx, m.cancel = context.WithCancel(context.Background())
-	utils.RunOnInterval(ctx, func() {
-		var bodyReader io.ReadCloser
-		var format expfmt.Format
+	utils.RunOnInterval(m.ctx, func() {
+		bodyReader, format, err := m.client.GetBodyReader()
 		defer func() {
 			if bodyReader != nil {
 				bodyReader.Close()
 			}
 		}()
-		if bodyReader, format, err = m.client.GetBodyReader(); err != nil {
+		if err != nil {
 			m.loggingEntry.WithError(err).Error("Could not get prometheus metrics")
 			return
 		}
@@ -68,7 +64,23 @@ func (m *Monitor) Configure(conf ConfigInterface) (err error) {
 			m.Output.SendDatapoint(dps[i])
 		}
 	}, conf.GetInterval())
-	return err
+	return nil
+}
+
+func (m *Monitor) configureNil(conf ConfigInterface) {
+	m.mux.Lock()
+	defer m.mux.Unlock()
+	if m.cancel == nil {
+		m.ctx, m.cancel = context.WithCancel(context.Background())
+	}
+	if m.loggingEntry == nil {
+		m.loggingEntry = logrus.WithFields(logrus.Fields{"monitorType": conf.GetMonitorType()})
+	}
+	if m.client == nil {
+		if m.client, m.configErr = conf.NewClient(); m.configErr != nil {
+			m.loggingEntry.WithError(m.configErr).Error("Could not create prometheus client")
+		}
+	}
 }
 
 // Shutdown stops the metric sync
