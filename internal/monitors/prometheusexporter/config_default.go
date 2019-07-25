@@ -8,10 +8,8 @@ import (
 	"strings"
 	"time"
 
-	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
 	"github.com/signalfx/signalfx-agent/internal/core/config"
-	"github.com/sirupsen/logrus"
 )
 
 // Config is the default config for this monitor and implements ConfigInterface.
@@ -67,7 +65,7 @@ func (c *Config) NewClient() (*Client, error) {
 	}
 	url := fmt.Sprintf("%s://%s:%d%s", scheme, host, c.Port, c.MetricPath)
 	return &Client{
-		GetMetricFamilies: func() (metricFamilies []*dto.MetricFamily, err error) {
+		GetBodyReader: func() (bodyReader io.ReadCloser, format expfmt.Format, err error) {
 			var req *http.Request
 			var resp *http.Response
 			// Prometheus 2.0 deprecated protobuf and now only does the text format.
@@ -78,25 +76,17 @@ func (c *Config) NewClient() (*Client, error) {
 				req.SetBasicAuth(c.Username, c.Password)
 			}
 			if resp, err = httpClient.Do(req); err != nil {
+				if resp != nil && resp.Body != nil {
+					resp.Body.Close()
+				}
 				return
 			}
 			if resp.StatusCode != 200 {
 				err = fmt.Errorf("prometheus exporter at %s returned status %d", resp.Request.URL.String(), resp.StatusCode)
 				return
 			}
-			defer resp.Body.Close()
-			decoder := expfmt.NewDecoder(resp.Body, expfmt.ResponseFormat(resp.Header))
-			metricFamilies = make([]*dto.MetricFamily, 0)
-			for {
-				var mf dto.MetricFamily
-				if err = decoder.Decode(&mf); err != nil {
-					if err == io.EOF {
-						err = nil
-					}
-					return
-				}
-				metricFamilies = append(metricFamilies, &mf)
-			}
+			bodyReader, format = resp.Body, expfmt.ResponseFormat(resp.Header)
+			return
 		},
 	}, nil
 }
@@ -106,14 +96,9 @@ func (c *Config) GetInterval() time.Duration {
 	return time.Duration(c.IntervalSeconds) * time.Second
 }
 
-var loggingEntry *logrus.Entry
-
-// GetLoggingEntry is a ConfigInterface method implementation for getting the logging entry.
-func (c *Config) GetLoggingEntry() *logrus.Entry {
-	if loggingEntry == nil {
-		loggingEntry = logrus.WithFields(logrus.Fields{"monitorType": monitorType})
-	}
-	return loggingEntry
+// GetMonitorType is a ConfigInterface method implementation for getting the monitor type.
+func (c *Config) GetMonitorType() string {
+	return monitorType
 }
 
 func (c *Config) GetExtraMetrics() []string {

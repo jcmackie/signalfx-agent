@@ -1,20 +1,20 @@
 package prometheusexporter
 
 import (
+	"io"
 	"time"
 
-	dto "github.com/prometheus/client_model/go"
-	"github.com/sirupsen/logrus"
+	"github.com/prometheus/common/expfmt"
 )
 
 // ConfigInterface is the interface for configuring the prometheus exporter monitor.
 type ConfigInterface interface {
 	NewClient() (*Client, error)
 	GetInterval() time.Duration
-	GetLoggingEntry() *logrus.Entry
+	GetMonitorType() string
 }
 
-// Client is the prometheus exporter monitor client for scraping prometheus metrics.
+// Client is the prometheus exporter monitor client for reading prometheus metrics.
 type Client struct {
-	GetMetricFamilies func() ([]*dto.MetricFamily, error)
+	GetBodyReader func() (bodyReader io.ReadCloser, format expfmt.Format, err error)
 }

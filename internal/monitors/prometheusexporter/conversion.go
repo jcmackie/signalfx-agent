@@ -1,7 +1,10 @@
 package prometheusexporter
 
 import (
+	"io"
 	"strconv"
+
+	"github.com/prometheus/common/expfmt"
 
 	dto "github.com/prometheus/client_model/go"
 	"github.com/signalfx/golib/datapoint"
@@ -46,12 +49,17 @@ func convertMetricFamily(mf *dto.MetricFamily) []*datapoint.Datapoint {
 	}
 }
 
-func convertMetricFamilies(metricFamilies []*dto.MetricFamily) []*datapoint.Datapoint {
-	var dps []*datapoint.Datapoint
-	for i := range metricFamilies {
-		dps = append(dps, convertMetricFamily(metricFamilies[i])...)
+func decodeMetrics(decoder expfmt.Decoder) (dps []*datapoint.Datapoint, err error) {
+	for {
+		var mf dto.MetricFamily
+		if err = decoder.Decode(&mf); err != nil {
+			if err == io.EOF {
+				err = nil
+			}
+			return
+		}
+		dps = append(dps, convertMetricFamily(&mf)...)
 	}
-	return dps
 }
 
 func makeSimpleDatapoints(name string, ms []*dto.Metric, dpf dpFactory, e extractor) []*datapoint.Datapoint {

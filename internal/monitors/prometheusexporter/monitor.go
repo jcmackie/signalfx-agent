@@ -2,9 +2,13 @@ package prometheusexporter
 
 import (
 	"context"
+	"io"
 	"time"
 
-	dto "github.com/prometheus/client_model/go"
+	"github.com/sirupsen/logrus"
+
+	"github.com/prometheus/common/expfmt"
+	"github.com/signalfx/golib/datapoint"
 	"github.com/signalfx/signalfx-agent/internal/monitors"
 	"github.com/signalfx/signalfx-agent/internal/monitors/types"
 	"github.com/signalfx/signalfx-agent/internal/utils"
@@ -23,34 +27,48 @@ type Monitor struct {
 	// Extra dimensions to add in addition to those specified in the config.
 	ExtraDimensions map[string]string
 	// If true, IncludedMetrics is ignored and everything is sent.
-	SendAll bool
-	cancel  func()
-	client  *Client
+	SendAll      bool
+	cancel       func()
+	client       *Client
+	loggingEntry *logrus.Entry
 }
 
 // Configure the monitor and kick off volume metric syncing
 func (m *Monitor) Configure(conf ConfigInterface) (err error) {
-	logger := conf.GetLoggingEntry()
+	if m.loggingEntry == nil {
+		m.loggingEntry = logrus.WithFields(logrus.Fields{"monitorType": conf.GetMonitorType()})
+	}
 	if m.client, err = conf.NewClient(); err != nil {
-		logger.WithError(err).Error("Could not create prometheus client")
+		m.loggingEntry.WithError(err).Error("Could not create prometheus client")
 		return
 	}
 	var ctx context.Context
 	ctx, m.cancel = context.WithCancel(context.Background())
 	utils.RunOnInterval(ctx, func() {
-		var metricFamilies []*dto.MetricFamily
-		if metricFamilies, err = m.client.GetMetricFamilies(); err != nil {
-			logger.WithError(err).Error("Could not get prometheus metrics")
+		var bodyReader io.ReadCloser
+		var format expfmt.Format
+		defer func() {
+			if bodyReader != nil {
+				bodyReader.Close()
+			}
+		}()
+		if bodyReader, format, err = m.client.GetBodyReader(); err != nil {
+			m.loggingEntry.WithError(err).Error("Could not get prometheus metrics")
 			return
 		}
-		dps := convertMetricFamilies(metricFamilies)
+		decoder := expfmt.NewDecoder(bodyReader, format)
+		var dps []*datapoint.Datapoint
+		if dps, err = decodeMetrics(decoder); err != nil {
+			m.loggingEntry.WithError(err).Error("Could not decode prometheus metrics from response body")
+			return
+		}
 		now := time.Now()
 		for i := range dps {
 			dps[i].Timestamp = now
 			m.Output.SendDatapoint(dps[i])
 		}
 	}, conf.GetInterval())
-	return
+	return err
 }
 
 // Shutdown stops the metric sync
