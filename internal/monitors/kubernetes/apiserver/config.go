@@ -52,7 +52,10 @@ func (c *Config) NewClient() (*prometheusexporter.Client, error) {
 			metricFamilies = make([]*dto.MetricFamily, 0)
 			for {
 				var mf dto.MetricFamily
-				if err = decoder.Decode(&mf); err != nil || err == io.EOF {
+				if err = decoder.Decode(&mf); err != nil {
+					if err == io.EOF {
+						err = nil
+					}
 					return
 				}
 				metricFamilies = append(metricFamilies, &mf)
