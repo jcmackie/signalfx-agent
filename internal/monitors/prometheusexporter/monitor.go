@@ -8,10 +8,7 @@ import (
 	"github.com/signalfx/signalfx-agent/internal/monitors"
 	"github.com/signalfx/signalfx-agent/internal/monitors/types"
 	"github.com/signalfx/signalfx-agent/internal/utils"
-	log "github.com/sirupsen/logrus"
 )
-
-var logger = log.WithFields(log.Fields{"monitorType": monitorType})
 
 func init() {
 	monitors.Register(&monitorMetadata, func() interface{} { return &Monitor{} }, &Config{})
@@ -33,6 +30,7 @@ type Monitor struct {
 
 // Configure the monitor and kick off volume metric syncing
 func (m *Monitor) Configure(conf ConfigInterface) (err error) {
+	logger := conf.GetLoggingEntry()
 	if m.client, err = conf.NewClient(); err != nil {
 		logger.WithError(err).Error("Could not create prometheus client")
 		return

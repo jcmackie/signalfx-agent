@@ -10,6 +10,7 @@ import (
 	"github.com/signalfx/signalfx-agent/internal/core/config"
 	"github.com/signalfx/signalfx-agent/internal/monitors"
 	"github.com/signalfx/signalfx-agent/internal/monitors/prometheusexporter"
+	"github.com/sirupsen/logrus"
 )
 
 func init() {
@@ -63,4 +64,14 @@ func (c *Config) NewClient() (*prometheusexporter.Client, error) {
 // GetInterval is a ConfigInterface method implementation for getting the configured monitor run interval.
 func (c *Config) GetInterval() time.Duration {
 	return time.Duration(c.IntervalSeconds) * time.Second
+}
+
+var loggingEntry *logrus.Entry
+
+// GetLoggingEntry is a ConfigInterface method implementation for getting the logging entry.
+func (c *Config) GetLoggingEntry() *logrus.Entry {
+	if loggingEntry == nil {
+		loggingEntry = logrus.WithFields(logrus.Fields{"monitorType": monitorType})
+	}
+	return loggingEntry
 }
