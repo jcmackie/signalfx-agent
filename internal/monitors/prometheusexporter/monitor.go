@@ -28,12 +28,12 @@ type Monitor struct {
 	// If true, IncludedMetrics is ignored and everything is sent.
 	SendAll bool
 	cancel  func()
-	client  *PrometheusClient
+	client  *Client
 }
 
 // Configure the monitor and kick off volume metric syncing
-func (m *Monitor) Configure(conf PrometheusConfig) (err error) {
-	if m.client, err = conf.NewPrometheusClient(); err != nil {
+func (m *Monitor) Configure(conf ConfigInterface) (err error) {
+	if m.client, err = conf.NewClient(); err != nil {
 		logger.WithError(err).Error("Could not create prometheus client")
 		return
 	}
@@ -41,7 +41,7 @@ func (m *Monitor) Configure(conf PrometheusConfig) (err error) {
 	ctx, m.cancel = context.WithCancel(context.Background())
 	utils.RunOnInterval(ctx, func() {
 		var metricFamilies []*dto.MetricFamily
-		if metricFamilies, err = m.client.GetMetricFamilies();  err != nil {
+		if metricFamilies, err = m.client.GetMetricFamilies(); err != nil {
 			logger.WithError(err).Error("Could not get prometheus metrics")
 			return
 		}

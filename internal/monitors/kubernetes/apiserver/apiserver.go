@@ -1,21 +1,22 @@
 package apiserver
 
 import (
+	"io"
+	"time"
+
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
 	"github.com/signalfx/signalfx-agent/internal/core/common/kubernetes"
 	"github.com/signalfx/signalfx-agent/internal/core/config"
 	"github.com/signalfx/signalfx-agent/internal/monitors"
 	"github.com/signalfx/signalfx-agent/internal/monitors/prometheusexporter"
-	"io"
-	"time"
 )
 
 func init() {
 	monitors.Register(&monitorMetadata, func() interface{} { return &prometheusexporter.Monitor{} }, &Config{})
 }
 
-// Config is the config for this monitor and implements interface PrometheusConfig.
+// Config is the config for this monitor and implements ConfigInterface.
 type Config struct {
 	config.MonitorConfig
 	// Configuration of the Kubernetes API client.
@@ -29,16 +30,20 @@ func (c *Config) Validate() error {
 	return c.KubernetesAPI.Validate()
 }
 
-// NewPrometheusClient is a PrometheusConfig interface method implementation that creates the prometheus client.
-func (c *Config) NewPrometheusClient() (*prometheusexporter.PrometheusClient, error) {
+// NewClient is a ConfigInterface method implementation that creates the prometheus client.
+func (c *Config) NewClient() (*prometheusexporter.Client, error) {
 	k8sClient, err := kubernetes.MakeClient(c.KubernetesAPI)
 	if err != nil {
 		return nil, err
 	}
-	return  &prometheusexporter.PrometheusClient{
+	return &prometheusexporter.Client{
 		GetMetricFamilies: func() (metricFamilies []*dto.MetricFamily, err error) {
 			var body io.ReadCloser
-			defer func() { if body != nil {body.Close()} }()
+			defer func() {
+				if body != nil {
+					body.Close()
+				}
+			}()
 			if body, err = k8sClient.CoreV1().RESTClient().Get().RequestURI(c.MetricPath).Stream(); err != nil {
 				return
 			}
@@ -51,12 +56,11 @@ func (c *Config) NewPrometheusClient() (*prometheusexporter.PrometheusClient, er
 				}
 				metricFamilies = append(metricFamilies, &mf)
 			}
-			return
 		},
 	}, nil
 }
 
-// GetInterval is a PrometheusConfig interface method implementation for getting the configured monitor run interval.
+// GetInterval is a ConfigInterface method implementation for getting the configured monitor run interval.
 func (c *Config) GetInterval() time.Duration {
-	return time.Duration(c.IntervalSeconds)*time.Second
+	return time.Duration(c.IntervalSeconds) * time.Second
 }

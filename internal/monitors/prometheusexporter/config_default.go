@@ -3,16 +3,17 @@ package prometheusexporter
 import (
 	"crypto/tls"
 	"fmt"
-	dto "github.com/prometheus/client_model/go"
-	"github.com/prometheus/common/expfmt"
-	"github.com/signalfx/signalfx-agent/internal/core/config"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	dto "github.com/prometheus/client_model/go"
+	"github.com/prometheus/common/expfmt"
+	"github.com/signalfx/signalfx-agent/internal/core/config"
 )
 
-// Config is the default config for this monitor and implementations of interface PrometheusConfig.
+// Config is the default config for this monitor and implements ConfigInterface.
 type Config struct {
 	config.MonitorConfig `yaml:",inline" acceptsEndpoints:"true"`
 
@@ -44,8 +45,8 @@ type Config struct {
 	SendAllMetrics bool `yaml:"sendAllMetrics"`
 }
 
-// NewPrometheusClient is a PrometheusConfig interface method implementation that creates the default prometheus client.
-func (c *Config) NewPrometheusClient() (*PrometheusClient, error) {
+// NewClient is a ConfigInterface method implementation that creates the default prometheus client.
+func (c *Config) NewClient() (*Client, error) {
 	httpClient := &http.Client{
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
@@ -64,9 +65,10 @@ func (c *Config) NewPrometheusClient() (*PrometheusClient, error) {
 		host = "[" + host + "]"
 	}
 	url := fmt.Sprintf("%s://%s:%d%s", scheme, host, c.Port, c.MetricPath)
-	return &PrometheusClient{
+	return &Client{
 		GetMetricFamilies: func() (metricFamilies []*dto.MetricFamily, err error) {
-			var req *http.Request; var resp *http.Response
+			var req *http.Request
+			var resp *http.Response
 			// Prometheus 2.0 deprecated protobuf and now only does the text format.
 			if req, err = http.NewRequest("GET", url, nil); err != nil {
 				return
@@ -86,22 +88,18 @@ func (c *Config) NewPrometheusClient() (*PrometheusClient, error) {
 			metricFamilies = make([]*dto.MetricFamily, 0)
 			for {
 				var mf dto.MetricFamily
-				err = decoder.Decode(&mf)
-				if err == io.EOF {
-					return metricFamilies, nil
-				} else if err != nil {
-					return nil, err
+				if err = decoder.Decode(&mf); err != nil || err == io.EOF {
+					return
 				}
 				metricFamilies = append(metricFamilies, &mf)
 			}
-			return
 		},
 	}, nil
 }
 
-// GetInterval is a PrometheusConfig interface method implementation for getting the configured monitor run interval.
+// GetInterval is a ConfigInterface method implementation for getting the configured monitor run interval.
 func (c *Config) GetInterval() time.Duration {
-	return time.Duration(c.IntervalSeconds)*time.Second
+	return time.Duration(c.IntervalSeconds) * time.Second
 }
 
 func (c *Config) GetExtraMetrics() []string {
