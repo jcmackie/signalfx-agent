@@ -39,7 +39,7 @@ type Monitor struct {
 // Configure the monitor and kick off volume metric syncing
 func (m *Monitor) Configure(conf ConfigInterface) error {
 	if m.configureOnceSync(conf); m.configErr == nil {
-		m.fetchAndSendAsync(conf)
+		m.readSendCloseAsync(conf)
 	}
 	return m.configErr
 }
@@ -60,7 +60,7 @@ func (m *Monitor) configureOnceSync(conf ConfigInterface) {
 	}
 }
 
-func (m *Monitor) fetchAndSendAsync(conf ConfigInterface) {
+func (m *Monitor) readSendCloseAsync(conf ConfigInterface) {
 	utils.RunOnInterval(m.ctx, func() {
 		bodyReader, format, err := m.client.GetBodyReader()
 		defer func() {
