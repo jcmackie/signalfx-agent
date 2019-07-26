@@ -1,6 +1,12 @@
 monitors:
 - monitorType: kubernetes-apiserver
   doc: |
+    This monitor queries the Kubernetes API server for kube-apiserver metrics in Prometheus format.
+    The monitor queries path `/metrics` by default when no path is configured. The monitor converts
+    the Prometheus metric types to SignalFx metric types as described [here](prometheus-exporter.md)
+
+    Example YAML Configuration
+
       ```
       monitors:
       - type: kubernetes-apiserver

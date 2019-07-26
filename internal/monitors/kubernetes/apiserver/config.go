@@ -17,10 +17,10 @@ func init() {
 
 // Config is the config for this monitor and implements ConfigInterface.
 type Config struct {
-	config.MonitorConfig
+	config.MonitorConfig `yaml:",inline" acceptsEndpoints:"true"`
 	// Configuration of the Kubernetes API client.
 	KubernetesAPI *kubernetes.APIConfig `yaml:"kubernetesAPI" default:"{}"`
-	// Path to the metrics endpoint on the exporter server, usually `/metrics` (the default).
+	// Path to the metrics endpoint on server, usually `/metrics` (the default).
 	MetricPath string `yaml:"metricPath" default:"/metrics"`
 }
 
