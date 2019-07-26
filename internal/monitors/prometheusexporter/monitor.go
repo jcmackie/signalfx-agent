@@ -38,13 +38,13 @@ type Monitor struct {
 
 // Configure the monitor and kick off volume metric syncing
 func (m *Monitor) Configure(conf ConfigInterface) error {
-	if m.configureIfNilSync(conf); m.configErr == nil {
+	if m.configureOnceSync(conf); m.configErr == nil {
 		m.fetchAndSendAsync(conf)
 	}
 	return m.configErr
 }
 
-func (m *Monitor) configureIfNilSync(conf ConfigInterface) {
+func (m *Monitor) configureOnceSync(conf ConfigInterface) {
 	m.mux.Lock()
 	defer m.mux.Unlock()
 	if m.cancel == nil {
