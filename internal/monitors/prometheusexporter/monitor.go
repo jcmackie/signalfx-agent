@@ -2,12 +2,13 @@ package prometheusexporter
 
 import (
 	"context"
+	"sync"
+	"time"
+
 	"github.com/prometheus/common/expfmt"
 	"github.com/signalfx/golib/datapoint"
 	"github.com/signalfx/signalfx-agent/internal/utils"
 	"github.com/sirupsen/logrus"
-	"sync"
-	"time"
 
 	"github.com/signalfx/signalfx-agent/internal/monitors"
 	"github.com/signalfx/signalfx-agent/internal/monitors/types"
