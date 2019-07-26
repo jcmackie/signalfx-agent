@@ -71,6 +71,12 @@ rules:
   - get
   - list
   - watch
+- nonResourceURLs:
+  - '*'
+  verbs:
+  - get
+  - list
+  - watch
 {{- with .Values.rbac.customRules }}
 {{ toYaml . }}
 {{- end }}
