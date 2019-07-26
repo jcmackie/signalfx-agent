@@ -24236,7 +24236,7 @@
       "monitorType": "kubernetes-apiserver",
       "sendAll": false,
       "dimensions": null,
-      "doc": "```\nmonitors:\n- type: kubernetes-apiserver\n  extraDimensions:\n    metric_source: kubernetes-apiserver\n```\n",
+      "doc": "This monitor queries the Kubernetes API server for kube-apiserver metrics in Prometheus format.\nThe monitor queries path `/metrics` by default when no path is configured. The monitor converts\nthe Prometheus metric types to SignalFx metric types as described [here](prometheus-exporter.md)\n\nExample YAML Configuration\n\n  ```\n  monitors:\n  - type: kubernetes-apiserver\n    extraDimensions:\n      metric_source: kubernetes-apiserver\n  ```\n",
       "groups": {
         "": {
           "description": "",
@@ -26202,7 +26202,7 @@
           },
           {
             "yamlName": "metricPath",
-            "doc": "Path to the metrics endpoint on the exporter server, usually `/metrics` (the default).",
+            "doc": "Path to the metrics endpoint on server, usually `/metrics` (the default).",
             "default": "/metrics",
             "required": false,
             "type": "string",
@@ -26210,7 +26210,7 @@
           }
         ]
       },
-      "acceptsEndpoints": false,
+      "acceptsEndpoints": true,
       "singleInstance": false
     },
     {

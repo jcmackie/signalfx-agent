@@ -2,20 +2,26 @@
 
 # kubernetes-apiserver
 
-Monitor Type: `kubernetes-apiserver` ([Source](https://github.com/signalfx/signalfx-agent/tree/k8s-apiserver/internal/monitors/kubernetes/apiserver))
+Monitor Type: `kubernetes-apiserver` ([Source](https://github.com/signalfx/signalfx-agent/tree/master/internal/monitors/kubernetes/apiserver))
 
-**Accepts Endpoints**: No
+**Accepts Endpoints**: **Yes**
 
 **Multiple Instances Allowed**: Yes
 
 ## Overview
 
-```
-monitors:
-- type: kubernetes-apiserver
-  extraDimensions:
-    metric_source: kubernetes-apiserver
-```
+This monitor queries the Kubernetes API server for kube-apiserver metrics in Prometheus format.
+The monitor queries path `/metrics` by default when no path is configured. The monitor converts
+the Prometheus metric types to SignalFx metric types as described [here](prometheus-exporter.md)
+
+Example YAML Configuration
+
+  ```
+  monitors:
+  - type: kubernetes-apiserver
+    extraDimensions:
+      metric_source: kubernetes-apiserver
+  ```
 
 
 ## Configuration
@@ -36,7 +42,7 @@ Configuration](../monitor-config.md#common-configuration).**
 | Config option | Required | Type | Description |
 | --- | --- | --- | --- |
 | `kubernetesAPI` | no | `object (see below)` | Configuration of the Kubernetes API client. |
-| `metricPath` | no | `string` | Path to the metrics endpoint on the exporter server, usually `/metrics` (the default). (**default:** `/metrics`) |
+| `metricPath` | no | `string` | Path to the metrics endpoint on server, usually `/metrics` (the default). (**default:** `/metrics`) |
 
 
 The **nested** `kubernetesAPI` config object has the following fields:
